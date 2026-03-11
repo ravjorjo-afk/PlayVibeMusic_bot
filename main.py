@@ -41,7 +41,7 @@ def get_ydl_opts(is_search=False):
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     }
     if is_search:
-        opts['default_search'] = 'ytsearch5'
+        opts['default_search'] = 'ytmsearch5'
         opts['noplaylist'] = True
     return opts
 
@@ -103,3 +103,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
