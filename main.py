@@ -36,9 +36,9 @@ def get_ydl_opts(is_search=False):
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
-        # Эмуляция браузера
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'referer': 'https://www.google.com/',
+        'source_address': '0.0.0.0', # Принудительно используем IPv4
+        'force_ipv4': True,
+        'user_agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 11; en_US; Pixel 4 XL) gzip',
         'nocheckcertificate': True,
         'geo_bypass': True,
     }
@@ -105,3 +105,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
