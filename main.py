@@ -8,6 +8,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
+# --- НАСТРОЙКИ ---
 API_TOKEN = '8748934991:AAGs8lDc_ZeRPuMHCxKVtYqHBnB0njdJuzU'
 DOWNLOAD_PATH = 'downloads'
 
@@ -18,6 +19,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 async def handle(request):
     return web.Response(text="Bot is running!")
 
@@ -30,14 +32,15 @@ async def run_web_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
+# --- НАСТРОЙКИ YT-DLP ---
 def get_ydl_opts(is_search=False):
     opts = {
-        # Изменили формат на более гибкий, чтобы избежать ошибки "Format not available"
-        'format': 'bestaudio/best/m4a/mp3', 
+        # Если нет чистого аудио, берем видео и конвертируем. Это лечит "Format not available"
+        'format': 'bestaudio/best', 
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'cookiefile': 'cookies.txt',
+        'cookiefile': 'cookies.txt', # Твой паспорт для YouTube
         'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     }
@@ -51,13 +54,14 @@ def search_yt(query):
         info = ydl.extract_info(query, download=False)
         return info.get('entries', [])
 
+# --- ОБРАБОТЧИКИ ТЕЛЕГРАМ ---
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    await message.answer("🎧 Бот готов! Попробуй найти песню еще раз.")
+    await message.answer("🎧 Бот запущен! Напиши название песни.")
 
 @dp.message(F.text & ~F.text.startswith('http'))
 async def handle_search(message: types.Message):
-    msg = await message.answer("🔎 Ищу...")
+    msg = await message.answer("🔎 Ищу варианты...")
     try:
         results = search_yt(message.text)
         builder = InlineKeyboardBuilder()
@@ -66,15 +70,19 @@ async def handle_search(message: types.Message):
             v_title = entry.get('title', 'Track')[:45]
             if v_id:
                 builder.row(types.InlineKeyboardButton(text=v_title, callback_data=f"dl:{v_id}"))
-        await msg.edit_text("Выбери вариант:", reply_markup=builder.as_markup())
+        if not results:
+            await msg.edit_text("Ничего не нашел.")
+        else:
+            await msg.edit_text("Выбери вариант:", reply_markup=builder.as_markup())
     except Exception as e:
-        await msg.edit_text(f"Ошибка поиска: {e}")
+        await msg.edit_text(f"Ошибка поиска. Попробуй другое название.")
+        logging.error(f"Search error: {e}")
 
 @dp.callback_query(F.data.startswith("dl:"))
 async def download_callback(callback: types.CallbackQuery):
     video_id = callback.data.split(":")[1]
     url = f"https://www.youtube.com/watch?v={video_id}"
-    await callback.message.edit_text("⏳ Качаю... (использую куки)")
+    await callback.message.edit_text("⏳ Качаю... Это может занять секунд 20.")
     
     file_path_base = os.path.join(DOWNLOAD_PATH, f"{video_id}")
     file_mp3 = file_path_base + ".mp3"
@@ -88,20 +96,23 @@ async def download_callback(callback: types.CallbackQuery):
     }]
 
     try:
+        # Небольшая пауза для имитации человека
         await asyncio.sleep(random.uniform(1, 3))
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         
         audio = types.FSInputFile(file_mp3)
-        await callback.message.answer_audio(audio, caption="Твой вайб! 🍉")
+        await callback.message.answer_audio(audio, caption="Твой трек готов! 🍉")
         await callback.message.delete()
+        
         if os.path.exists(file_mp3):
             os.remove(file_mp3)
     except Exception as e:
-        await callback.message.answer(f"Не удалось скачать этот формат. Попробуй другой вариант из списка!")
-        logging.error(f"Error: {e}")
+        await callback.message.answer("⚠️ YouTube заблокировал загрузку. Попробуй другой вариант из списка.")
+        logging.error(f"Download error: {e}")
 
 async def main():
+    # Удаляем вебхук, чтобы не было Conflict
     await bot.delete_webhook(drop_pending_updates=True)
     await asyncio.gather(run_web_server(), dp.start_polling(bot))
 
