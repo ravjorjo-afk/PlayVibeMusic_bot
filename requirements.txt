@@ -1,3 +1,2 @@
 aiogram
 yt-dlp
-yt-dlp-package-dropin
