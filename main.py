@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
-# --- НАСТРОЙКИ ---
+# Конфиг
 API_TOKEN = '8748934991:AAGs8lDc_ZeRPuMHCxKVtYqHBnB0njdJuzU'
 DOWNLOAD_PATH = 'downloads'
 
@@ -19,9 +19,9 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
+# Веб-сервер для Render
 async def handle(request):
-    return web.Response(text="Bot is running!")
+    return web.Response(text="Bot Status: Online")
 
 async def run_web_server():
     app = web.Application()
@@ -32,17 +32,22 @@ async def run_web_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-# --- НАСТРОЙКИ YT-DLP ---
+# Жесткие настройки для обхода блокировок YouTube
 def get_ydl_opts(is_search=False):
     opts = {
-        # Если нет чистого аудио, берем видео и конвертируем. Это лечит "Format not available"
-        'format': 'bestaudio/best', 
+        # Запрашиваем ЛЮБОЕ аудио или видео (потом вырежем звук), чтобы не было ошибки формата
+        'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'cookiefile': 'cookies.txt', # Твой паспорт для YouTube
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'cookiefile': 'cookies.txt',
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        },
+        'extractor_args': {'youtube': {'player_client': ['web_creator', 'android', 'web']}},
     }
     if is_search:
         opts['default_search'] = 'ytsearch5'
@@ -54,14 +59,13 @@ def search_yt(query):
         info = ydl.extract_info(query, download=False)
         return info.get('entries', [])
 
-# --- ОБРАБОТЧИКИ ТЕЛЕГРАМ ---
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    await message.answer("🎧 Бот запущен! Напиши название песни.")
+    await message.answer("🎧 Бот готов. Напиши название.")
 
 @dp.message(F.text & ~F.text.startswith('http'))
 async def handle_search(message: types.Message):
-    msg = await message.answer("🔎 Ищу варианты...")
+    msg = await message.answer("🔎 Ищу...")
     try:
         results = search_yt(message.text)
         builder = InlineKeyboardBuilder()
@@ -70,49 +74,42 @@ async def handle_search(message: types.Message):
             v_title = entry.get('title', 'Track')[:45]
             if v_id:
                 builder.row(types.InlineKeyboardButton(text=v_title, callback_data=f"dl:{v_id}"))
-        if not results:
-            await msg.edit_text("Ничего не нашел.")
-        else:
-            await msg.edit_text("Выбери вариант:", reply_markup=builder.as_markup())
+        await msg.edit_text("Выбери вариант:", reply_markup=builder.as_markup())
     except Exception as e:
-        await msg.edit_text(f"Ошибка поиска. Попробуй другое название.")
-        logging.error(f"Search error: {e}")
+        await msg.edit_text("Ничего не нашел. Попробуй другое название.")
 
 @dp.callback_query(F.data.startswith("dl:"))
 async def download_callback(callback: types.CallbackQuery):
     video_id = callback.data.split(":")[1]
     url = f"https://www.youtube.com/watch?v={video_id}"
-    await callback.message.edit_text("⏳ Качаю... Это может занять секунд 20.")
+    await callback.message.edit_text("⏳ Загружаю...")
     
-    file_path_base = os.path.join(DOWNLOAD_PATH, f"{video_id}")
-    file_mp3 = file_path_base + ".mp3"
+    file_path = os.path.join(DOWNLOAD_PATH, f"{video_id}")
+    file_mp3 = file_path + ".mp3"
     
     ydl_opts = get_ydl_opts()
-    ydl_opts['outtmpl'] = file_path_base
+    ydl_opts['outtmpl'] = file_path
     ydl_opts['postprocessors'] = [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'mp3',
-        'preferredquality': '192',
+        'preferredquality': '192'
     }]
 
     try:
-        # Небольшая пауза для имитации человека
-        await asyncio.sleep(random.uniform(1, 3))
+        await asyncio.sleep(random.uniform(2, 5))
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         
         audio = types.FSInputFile(file_mp3)
-        await callback.message.answer_audio(audio, caption="Твой трек готов! 🍉")
+        await callback.message.answer_audio(audio, caption="Готово! 🍉")
         await callback.message.delete()
-        
+    except Exception:
+        await callback.message.answer("Ошибка скачивания. Попробуй другое видео.")
+    finally:
         if os.path.exists(file_mp3):
             os.remove(file_mp3)
-    except Exception as e:
-        await callback.message.answer("⚠️ YouTube заблокировал загрузку. Попробуй другой вариант из списка.")
-        logging.error(f"Download error: {e}")
 
 async def main():
-    # Удаляем вебхук, чтобы не было Conflict
     await bot.delete_webhook(drop_pending_updates=True)
     await asyncio.gather(run_web_server(), dp.start_polling(bot))
 
